@@ -24,6 +24,7 @@ class Authenticator(dns_common.DNSAuthenticator):
     def __init__(self, *args, **kwargs):
         super(Authenticator, self).__init__(*args, **kwargs)
         self.credentials = None
+        self.records = []
 
     @classmethod
     def add_parser_arguments(cls, add):  # pylint: disable=arguments-differ
@@ -45,10 +46,11 @@ class Authenticator(dns_common.DNSAuthenticator):
             })
 
     def _perform(self, domain, validation_name, validation):
-        self._get_joker_client(domain).add_txt_record(domain, validation_name, validation)
+        self.records.append(validation)
+        self._get_joker_client(domain).add_txt_record(domain, validation_name, self.records)
 
     def _cleanup(self, domain, validation_name, validation):
-        self._get_joker_client(domain).del_txt_record(domain, validation_name, validation)
+        self._get_joker_client(domain).del_txt_record(domain, validation_name)
 
     def _get_joker_client(self, default_domain):
         username = self.credentials.conf('username')
@@ -92,11 +94,12 @@ class _JokerClient(object):
         self.ttl = ttl
         self.session = requests.Session()
 
-    def add_txt_record(self, cert_domain, record_name, record_content):
+    def update_txt_record(self, cert_domain, record_name, record_content):
+
         # Documentation for the Joker TXT record API is here:
         # https://joker.com/faq/content/6/496/en/let_s-encrypt-support.html
 
-        # print(f'ADD domain:{cert_domain} record_name:{record_name} endpoint:{self.endpoint}')
+        # print(f'UPDATE domain:{cert_domain} record_name:{record_name} endpoint:{self.endpoint}')
 
         # Joker adds the domain to the end of the label of the TXT record that
         # it creates, but the record_name that certbot passed us already has
@@ -117,13 +120,16 @@ class _JokerClient(object):
                 'ttl': self.ttl,
             })
 
-        # print(f'ADD {r} {r.text}\n  REQ URL: {r.request.url}\n  REQ BODY: {r.request.body}\n')
+        # print(f'UPDATE {r} {r.text}\n  REQ URL: {r.request.url}\n  REQ BODY: {r.request.body}\n')
 
         if r.status_code >= 300:
             self._handle_http_error(r.text, record_name, self.domain)
 
-    def del_txt_record(self, domain, record_name, record_content):
-        self.add_txt_record(domain, record_name, '')
+    def add_txt_record(self, cert_domain, record_name, record_content):
+        self.update_txt_record(cert_domain, record_name, record_content)
+
+    def del_txt_record(self, cert_domain, record_name):
+        self.update_txt_record(cert_domain, record_name, '')
 
     def _handle_http_error(self, error, record_name, domain_name):
         hint = self.error.get(error)
